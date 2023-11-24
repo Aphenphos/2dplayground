@@ -1,0 +1,20 @@
+SDL_Texture *target = SDL_CreateTexture(renderer, PIXELFORMAT, SDL_TEXTUREACCESS_TARGET, width, height);
+SDL_SetRenderTarget(renderer, target);
+SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+SDL_RenderClear(renderer);
+// Now draw whatever it is that you want to draw (just once!):
+SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+SDL_RenderDrawPoint(renderer, xxi[i], yyi[i]);
+// Main loop:
+bool quit = 0;
+while (!quit)
+  {
+    // Handle events
+    // Copy texture to default target and present:
+    SDL_SetRenderTarget(renderer, NULL);
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+    SDL_RenderCopy(renderer, target, NULL, NULL);
+    SDL_RenderPresent(renderer);
+    SDL_SetRenderTarget(renderer, target);
+  }
