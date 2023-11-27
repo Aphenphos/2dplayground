@@ -9,9 +9,11 @@
 #define ASPECT_RATIO 1.3334f
 #define ANIMATION_FPS 60
 #define TRAIL_DURATION_SECONDS 1
-#define POINT_COUNT 1000
-#define SPEEDMULTI .5f
-const float fpsInMS = 1.0f / ANIMATION_FPS;
+#define POINT_COUNT 100
+#define SPEEDMULTI 1.f
+#define LOOK_AHEAD 3
+#define LOOK_AHEAD_MULTI 1 / LOOK_AHEAD
+static const float fpsInMS = 1.0f / ANIMATION_FPS;
 
 enum PheremoneType {
     NEUTRAL,
@@ -37,56 +39,78 @@ struct point {
 struct pixel {
     int16_t duration;
     uint8_t color[3];
-
 };
 
 
-struct point points[POINT_COUNT];
-//implement pheremone strength
-int16_t pixels[WIDTH+1][HEIGHT+1] = {0};
+static struct point points[POINT_COUNT];
+static struct pixel pixels[WIDTH+1][HEIGHT+1] = {0};
 
 int randInRange(int lower, int upper) {
-    return rand() % (upper - lower + 1) + lower;
+    int range = upper - lower + 1;
+    return lower + (rand() % range);
 }
-
+float clamp(float d, int min, int max) {
+    const int t = d < min ? min : d;
+    return t > max ? max : t;
+}
 void determineDirection(struct point *p) {
-    int x = p->pos.x + p->velocity.x;
-    int y = p->pos.y + p->velocity.y;
+    struct vec2d viewCenter, pick[(LOOK_AHEAD * LOOK_AHEAD + 1) * (LOOK_AHEAD * LOOK_AHEAD + 1)];
+    uint8_t cnt = -1;
+
+    viewCenter.x = p->pos.x + ((int)p->velocity.x * LOOK_AHEAD);
+    viewCenter.y = p->pos.y + ((int)p->velocity.y * LOOK_AHEAD);
     switch (p->PheremoneType) {
         case (FOLLOW): {
-        if (pixels[x][y] < 0) {
-            p->velocity.x = randInRange(-1,1)*SPEEDMULTI;
-            p->velocity.y = randInRange(-1,1)*SPEEDMULTI;
-            } 
+            for (int8_t i = -LOOK_AHEAD; i < LOOK_AHEAD; i++) {
+                for (int8_t j = -LOOK_AHEAD; j < LOOK_AHEAD; j++) {
+                    struct vec2d check;
+                    check.x = viewCenter.x + i;
+                    check.y = viewCenter.y + j;
+                    if (check.x > WIDTH || check.x < 0 || check.y > HEIGHT || check.y < 0) {
+                        continue;
+                    }
+                    if (pixels[check.x][check.y].duration > 0) {
+                        cnt++;
+                        pick[cnt] = check;
+                    }
+                }
+            }
         }
         case (AVOID): {
-        if (pixels[x][y] > 0) {
-            p->velocity.x = randInRange(-1,1)*SPEEDMULTI;
-            p->velocity.y = randInRange(-1,1)*SPEEDMULTI;
-            }             
+            for (int8_t i = -LOOK_AHEAD; i < LOOK_AHEAD; i++) {
+                for (int8_t j = -LOOK_AHEAD; j < LOOK_AHEAD; j++) {
+                    struct vec2d check;
+                    check.x = viewCenter.x + i;
+                    check.y = viewCenter.y + j;
+                    if (check.x > WIDTH || check.x < 0 || check.y > HEIGHT || check.y < 0) {
+                        continue;
+                    }
+                    if (pixels[check.x][check.y].duration == 0) {
+                        cnt++;
+                        pick[cnt] = check;
+                    }
+                }
+            } 
         }
     }
+    if (cnt == -1) {
+        p->velocity.x = randInRange(-1,1)*SPEEDMULTI;
+        p->velocity.y = randInRange(-1,1)*SPEEDMULTI;
+        return;
+    }
+    struct vec2d pointAt = pick[randInRange(0,cnt)];
+    p->velocity.x =clamp(((pointAt.x - p->pos.x)), -1, 1) * SPEEDMULTI;
+    p->velocity.y =clamp(((pointAt.y - p->pos.y)), -1, 1) * SPEEDMULTI;
+
     return;
 }
 
 void animate(SDL_Renderer *renderer, double deltaTime) {
     for (int i = 0; i < *(&points + 1) - points; i++) {
-        if (points[i].pos.x >= WIDTH) {
-            points[i].pos.x = WIDTH;
-            points[i].velocity.x = randInRange(-1,1)*SPEEDMULTI;
-        } else if (points[i].pos.x <= 1){
-            points[i].pos.x = 1;
-            points[i].velocity.x = randInRange(-1,1)*SPEEDMULTI; 
-        }
-        if (points[i].pos.y >= HEIGHT) {
-            points[i].pos.y = HEIGHT;
-            points[i].velocity.y = randInRange(-1,1)* SPEEDMULTI;
-        } else if (points[i].pos.y <= 1){
-            points[i].pos.y = 1;
-            points[i].velocity.y = randInRange(-1,1)* SPEEDMULTI; 
-        }
         determineDirection(&points[i]);
-        pixels[points[i].pos.x][points[i].pos.y] = ANIMATION_FPS * TRAIL_DURATION_SECONDS;
+        points[i].pos.x = clamp(points[i].pos.x,0,WIDTH);
+        points[i].pos.y = clamp(points[i].pos.y,0,HEIGHT);
+        pixels[points[i].pos.x][points[i].pos.y].duration = ANIMATION_FPS * TRAIL_DURATION_SECONDS;
     }
 }
 
@@ -98,18 +122,19 @@ void update(SDL_Window* window, SDL_Renderer *renderer, bool a, double deltaTime
     }
     for (unsigned int i=0; i < WIDTH; i++) {
         for (unsigned int j=0; j < HEIGHT; j++) {
-            if (pixels[i][j] > 0) {
+            if (pixels[i][j].duration > 0) {
                 SDL_SetRenderDrawColor(renderer, 255,0,0, 255);
                 SDL_RenderDrawPoint(renderer,i,j);
                 if (a) {
-                    pixels[i][j]--;
+                    pixels[i][j].duration--;
                 }
             }
         }
     }
     for (unsigned int i=0; i < *(&points+1) - points; i++) {
-        points[i].pos.x += points[i].velocity.x * deltaTime;
-        points[i].pos.y += points[i].velocity.y * deltaTime;
+        printf("%f\n",points[i].velocity.x);
+        points[i].pos.x += points[i].velocity.x * (deltaTime * .0001f);
+        points[i].pos.y += points[i].velocity.y * (deltaTime * .0001f);
 
         SDL_SetRenderDrawColor(renderer, points[i].color[0], points[i].color[1], points[i].color[2], 255);
         SDL_RenderDrawPoint(renderer, points[i].pos.x, points[i].pos.y);
@@ -128,12 +153,8 @@ void init(SDL_Window* window, SDL_Renderer *renderer) {
         points[i].PheremoneType = randInRange(1,2);
         points[i].pos.x =  WIDTH / 2;
         points[i].pos.y = HEIGHT / 2;
-        points[i].velocity.x = randInRange(-1,1)*SPEEDMULTI;
-        points[i].velocity.y = randInRange(-1,1)*SPEEDMULTI;
-        if (points[i].velocity.x == 0 || points[i].velocity.y == 0) {
-            points[i].velocity.x = randInRange(-1,1)* SPEEDMULTI; 
-            points[i].velocity.y = randInRange(-1,1)* SPEEDMULTI; 
-        }
+        points[i].velocity.x = randInRange(-1,1);
+        points[i].velocity.y = randInRange(-1,1);
         points[i].color[0] = points[i].color[1] = points[i].color[2] = 255;
         SDL_SetRenderDrawColor(renderer, points[i].color[0], points[i].color[1], points[i].color[2], 255);
         SDL_RenderDrawPoint(renderer, points[i].pos.x, points[i].pos.y);
