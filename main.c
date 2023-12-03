@@ -10,7 +10,7 @@
 #define ASPECT_RATIO 1.3334f
 #define ANIMATION_FPS 60
 #define TRAIL_DURATION_SECONDS 1
-#define POINT_COUNT 100
+#define POINT_COUNT 1
 #define SPEEDMULTI 1.f
 #define LOOK_AHEAD 3
 #define LOOK_AHEAD_MULTI 1 / LOOK_AHEAD
@@ -60,18 +60,9 @@ struct vec2df adjustVelocity(struct vec2d currentPos, struct vec2d newPos) {
 
     newVelocity.x = newPos.x - currentPos.x;
     newVelocity.y = newPos.y - currentPos.y;
-
-    float magnitude = sqrt(newVelocity.x * newVelocity.x + newVelocity.y * newVelocity.y);
-
-    const float epsilon = 1e-5;
-    if (magnitude > epsilon) {
-        newVelocity.x /= magnitude;
-        newVelocity.y /= magnitude;
-    }
-
     return newVelocity;
 }
-float clamp(float d, int min, int max) {
+static inline float clamp(float d, int min, int max) {
     const int t = d < min ? min : d;
     return t > max ? max : t;
 }
@@ -86,9 +77,10 @@ void determineDirection(struct point *p) {
     struct vec2d pick[(int)pow(LOOK_AHEAD,2) + 1];
 
     for (int x = 0; x <=LOOK_AHEAD; x++) {
-        for (int y = 0; y <=LOOK_AHEAD; y++) {
-
-            struct vec2d pixel = {p->pos.x + (p->velocity.x * x), p->pos.y + (p->velocity.y * y)};
+        for (int y = -x; y <= x; y++) {
+            float rotatedX = x * cos(minAngle) - y * sin(minAngle);
+            float rotatedY = x * sin(minAngle) + y * cos(minAngle);
+            struct vec2d pixel = {p->pos.x + rotatedX, p->pos.y + rotatedY};
             float pixelAngle = atan2(pixel.y - p->pos.y, pixel.x - p->pos.x);
 
             if (calcDist(p->pos,pixel) <= LOOK_AHEAD && pixelAngle >= minAngle && pixelAngle <= maxAngle) {
@@ -106,13 +98,14 @@ void determineDirection(struct point *p) {
     struct vec2df newV = adjustVelocity(p->pos, pointAt);
     p->velocity.x = newV.x;
     p->velocity.y = newV.y;
-
     return;
 }
 
 void animate(SDL_Renderer *renderer, double deltaTime) {
     for (int i = 0; i < *(&points + 1) - points; i++) {
         determineDirection(&points[i]);
+        points[i].pos.x += points[i].velocity.x;
+        points[i].pos.y += points[i].velocity.y;
         points[i].pos.x = clamp(points[i].pos.x,1,WIDTH);
         points[i].pos.y = clamp(points[i].pos.y,1,HEIGHT);
         pixels[points[i].pos.x][points[i].pos.y].duration = ANIMATION_FPS * TRAIL_DURATION_SECONDS;
@@ -137,9 +130,6 @@ void update(SDL_Window* window, SDL_Renderer *renderer, bool a, double deltaTime
         }
     }
     for (unsigned int i=0; i < *(&points+1) - points; i++) {
-        points[i].pos.x += points[i].velocity.x * (deltaTime * .0001f);
-        points[i].pos.y += points[i].velocity.y * (deltaTime * .0001f);
-
         SDL_SetRenderDrawColor(renderer, points[i].color[0], points[i].color[1], points[i].color[2], 255);
         SDL_RenderDrawPoint(renderer, points[i].pos.x, points[i].pos.y);
     }
@@ -157,8 +147,8 @@ void init(SDL_Window* window, SDL_Renderer *renderer) {
         points[i].PheremoneType = randInRange(1,2);
         points[i].pos.x =  randInRange(0, WIDTH);
         points[i].pos.y = randInRange(0, HEIGHT);
-        points[i].velocity.x = -1;
-        points[i].velocity.y = 1;
+        points[i].velocity.x = randInRange(-1,1);
+        points[i].velocity.y = randInRange(-1,1);
         points[i].color[0] = points[i].color[1] = points[i].color[2] = 255;
         SDL_SetRenderDrawColor(renderer, points[i].color[0], points[i].color[1], points[i].color[2], 255);
         SDL_RenderDrawPoint(renderer, points[i].pos.x, points[i].pos.y);
