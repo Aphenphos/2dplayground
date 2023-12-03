@@ -15,6 +15,7 @@
 #define LOOK_AHEAD 3
 #define LOOK_AHEAD_MULTI 1 / LOOK_AHEAD
 #define MATH_PI 3.14159265358979323846
+#define ANGLE 15
 static const float fpsInMS = 1.0f / ANIMATION_FPS;
 
 enum PheremoneType {
@@ -60,6 +61,14 @@ struct vec2df adjustVelocity(struct vec2d currentPos, struct vec2d newPos) {
 
     newVelocity.x = newPos.x - currentPos.x;
     newVelocity.y = newPos.y - currentPos.y;
+
+    float magnitude = sqrt(newVelocity.x * newVelocity.x + newVelocity.y * newVelocity.y);
+    if (magnitude > 0) {
+        newVelocity.x /=magnitude;
+        newVelocity.y /=magnitude;
+    }
+
+
     return newVelocity;
 }
 static inline float clamp(float d, int min, int max) {
@@ -67,28 +76,8 @@ static inline float clamp(float d, int min, int max) {
     return t > max ? max : t;
 }
 void determineDirection(struct point *p) {
-    struct vec2df refDirection;
-    refDirection.x = -p->velocity.y;
-    refDirection.y = p->velocity.x;
-
-    float minAngle = atan2(refDirection.y, refDirection.x) - MATH_PI * .25;
-    float maxAngle = atan2(refDirection.y, refDirection.x) + MATH_PI * .25;
     int cnt = -1;
     struct vec2d pick[(int)pow(LOOK_AHEAD,2) + 1];
-
-    for (int x = 0; x <=LOOK_AHEAD; x++) {
-        for (int y = -x; y <= x; y++) {
-            float rotatedX = x * cos(minAngle) - y * sin(minAngle);
-            float rotatedY = x * sin(minAngle) + y * cos(minAngle);
-            struct vec2d pixel = {p->pos.x + rotatedX, p->pos.y + rotatedY};
-            float pixelAngle = atan2(pixel.y - p->pos.y, pixel.x - p->pos.x);
-
-            if (calcDist(p->pos,pixel) <= LOOK_AHEAD && pixelAngle >= minAngle && pixelAngle <= maxAngle) {
-                cnt++;
-                pick[cnt] = pixel;
-            }
-        }
-    }
     if (cnt == -1) {
         p->velocity.x = randInRange(-1,1)*SPEEDMULTI;
         p->velocity.y = randInRange(-1,1)*SPEEDMULTI;
