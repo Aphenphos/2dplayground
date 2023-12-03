@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 #include <time.h>
 #include <math.h>
@@ -13,6 +14,7 @@
 #define SPEEDMULTI 1.f
 #define LOOK_AHEAD 3
 #define LOOK_AHEAD_MULTI 1 / LOOK_AHEAD
+#define MATH_PI 3.14159265358979323846
 static const float fpsInMS = 1.0f / ANIMATION_FPS;
 
 enum PheremoneType {
@@ -47,50 +49,52 @@ static struct pixel pixels[WIDTH+1][HEIGHT+1] = {0};
 
 int randInRange(int lower, int upper) {
     int range = upper - lower + 1;
-    return lower + (rand() % range);
+    return lower + (int)((double)range * rand() / (RAND_MAX + 1.0));
+}
+
+float calcDist(struct vec2d p1, struct vec2d p2) {
+    return sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2));
+}
+struct vec2df adjustVelocity(struct vec2d currentPos, struct vec2d newPos) {
+    struct vec2df newVelocity;
+
+    newVelocity.x = newPos.x - currentPos.x;
+    newVelocity.y = newPos.y - currentPos.y;
+
+    float magnitude = sqrt(newVelocity.x * newVelocity.x + newVelocity.y * newVelocity.y);
+
+    const float epsilon = 1e-5;
+    if (magnitude > epsilon) {
+        newVelocity.x /= magnitude;
+        newVelocity.y /= magnitude;
+    }
+
+    return newVelocity;
 }
 float clamp(float d, int min, int max) {
     const int t = d < min ? min : d;
     return t > max ? max : t;
 }
 void determineDirection(struct point *p) {
-    struct vec2d viewCenter, pick[(LOOK_AHEAD * LOOK_AHEAD + 1) * (LOOK_AHEAD * LOOK_AHEAD + 1)];
-    uint8_t cnt = -1;
+    struct vec2df refDirection;
+    refDirection.x = -p->velocity.y;
+    refDirection.y = p->velocity.x;
 
-    viewCenter.x = p->pos.x + ((int)p->velocity.x * LOOK_AHEAD);
-    viewCenter.y = p->pos.y + ((int)p->velocity.y * LOOK_AHEAD);
-    switch (p->PheremoneType) {
-        case (FOLLOW): {
-            for (int8_t i = -LOOK_AHEAD; i < LOOK_AHEAD; i++) {
-                for (int8_t j = -LOOK_AHEAD; j < LOOK_AHEAD; j++) {
-                    struct vec2d check;
-                    check.x = viewCenter.x + i;
-                    check.y = viewCenter.y + j;
-                    if (check.x > WIDTH || check.x < 0 || check.y > HEIGHT || check.y < 0) {
-                        continue;
-                    }
-                    if (pixels[check.x][check.y].duration > 0) {
-                        cnt++;
-                        pick[cnt] = check;
-                    }
-                }
+    float minAngle = atan2(refDirection.y, refDirection.x) - MATH_PI * .25;
+    float maxAngle = atan2(refDirection.y, refDirection.x) + MATH_PI * .25;
+    int cnt = -1;
+    struct vec2d pick[(int)pow(LOOK_AHEAD,2) + 1];
+
+    for (int x = 0; x <=LOOK_AHEAD; x++) {
+        for (int y = 0; y <=LOOK_AHEAD; y++) {
+
+            struct vec2d pixel = {p->pos.x + (p->velocity.x * x), p->pos.y + (p->velocity.y * y)};
+            float pixelAngle = atan2(pixel.y - p->pos.y, pixel.x - p->pos.x);
+
+            if (calcDist(p->pos,pixel) <= LOOK_AHEAD && pixelAngle >= minAngle && pixelAngle <= maxAngle) {
+                cnt++;
+                pick[cnt] = pixel;
             }
-        }
-        case (AVOID): {
-            for (int8_t i = -LOOK_AHEAD; i < LOOK_AHEAD; i++) {
-                for (int8_t j = -LOOK_AHEAD; j < LOOK_AHEAD; j++) {
-                    struct vec2d check;
-                    check.x = viewCenter.x + i;
-                    check.y = viewCenter.y + j;
-                    if (check.x > WIDTH || check.x < 0 || check.y > HEIGHT || check.y < 0) {
-                        continue;
-                    }
-                    if (pixels[check.x][check.y].duration == 0) {
-                        cnt++;
-                        pick[cnt] = check;
-                    }
-                }
-            } 
         }
     }
     if (cnt == -1) {
@@ -99,8 +103,9 @@ void determineDirection(struct point *p) {
         return;
     }
     struct vec2d pointAt = pick[randInRange(0,cnt)];
-    p->velocity.x =clamp(((pointAt.x - p->pos.x)), -1, 1) * SPEEDMULTI;
-    p->velocity.y =clamp(((pointAt.y - p->pos.y)), -1, 1) * SPEEDMULTI;
+    struct vec2df newV = adjustVelocity(p->pos, pointAt);
+    p->velocity.x = newV.x;
+    p->velocity.y = newV.y;
 
     return;
 }
@@ -108,8 +113,8 @@ void determineDirection(struct point *p) {
 void animate(SDL_Renderer *renderer, double deltaTime) {
     for (int i = 0; i < *(&points + 1) - points; i++) {
         determineDirection(&points[i]);
-        points[i].pos.x = clamp(points[i].pos.x,0,WIDTH);
-        points[i].pos.y = clamp(points[i].pos.y,0,HEIGHT);
+        points[i].pos.x = clamp(points[i].pos.x,1,WIDTH);
+        points[i].pos.y = clamp(points[i].pos.y,1,HEIGHT);
         pixels[points[i].pos.x][points[i].pos.y].duration = ANIMATION_FPS * TRAIL_DURATION_SECONDS;
     }
 }
@@ -132,7 +137,6 @@ void update(SDL_Window* window, SDL_Renderer *renderer, bool a, double deltaTime
         }
     }
     for (unsigned int i=0; i < *(&points+1) - points; i++) {
-        printf("%f\n",points[i].velocity.x);
         points[i].pos.x += points[i].velocity.x * (deltaTime * .0001f);
         points[i].pos.y += points[i].velocity.y * (deltaTime * .0001f);
 
@@ -151,10 +155,10 @@ void init(SDL_Window* window, SDL_Renderer *renderer) {
     srand(time(0));
     for (int i = 0; i < *(&points + 1) - points; i++) {
         points[i].PheremoneType = randInRange(1,2);
-        points[i].pos.x =  WIDTH / 2;
-        points[i].pos.y = HEIGHT / 2;
-        points[i].velocity.x = randInRange(-1,1);
-        points[i].velocity.y = randInRange(-1,1);
+        points[i].pos.x =  randInRange(0, WIDTH);
+        points[i].pos.y = randInRange(0, HEIGHT);
+        points[i].velocity.x = -1;
+        points[i].velocity.y = 1;
         points[i].color[0] = points[i].color[1] = points[i].color[2] = 255;
         SDL_SetRenderDrawColor(renderer, points[i].color[0], points[i].color[1], points[i].color[2], 255);
         SDL_RenderDrawPoint(renderer, points[i].pos.x, points[i].pos.y);
