@@ -10,12 +10,12 @@
 #define ASPECT_RATIO 1.3334f
 #define ANIMATION_FPS 60
 #define TRAIL_DURATION_SECONDS 1
-#define POINT_COUNT 1
+#define POINT_COUNT 1000
 #define SPEEDMULTI 1.f
-#define LOOK_AHEAD 3
-#define LOOK_AHEAD_MULTI 1 / LOOK_AHEAD
+#define VIEWDISTANCE 10
+#define VIEWDISTANCE_MULTI 1 / VIEWDISTANCE
 #define MATH_PI 3.14159265358979323846
-#define ANGLE 15
+#define FOV 90
 static const float fpsInMS = 1.0f / ANIMATION_FPS;
 
 enum PheremoneType {
@@ -68,16 +68,70 @@ struct vec2df adjustVelocity(struct vec2d currentPos, struct vec2d newPos) {
         newVelocity.y /=magnitude;
     }
 
-
     return newVelocity;
 }
 static inline float clamp(float d, int min, int max) {
     const int t = d < min ? min : d;
     return t > max ? max : t;
 }
-void determineDirection(struct point *p) {
+
+static inline int clampDouble(double d, int min, int max) {
+    const int t = d < min ? min : d;
+    return t > max ? max : t; 
+}
+
+void determineDirection(struct point *p, SDL_Renderer *renderer) {
+    SDL_SetRenderDrawColor(renderer, 0,255,0,255);
     int cnt = -1;
-    struct vec2d pick[(int)pow(LOOK_AHEAD,2) + 1];
+    struct vec2d pick[FOV * VIEWDISTANCE];
+    static const float fovRad = FOV * (MATH_PI / 180.0f);
+    static const float halfFovRad = fovRad /2.0f;
+    switch (p->PheremoneType) {
+        case (AVOID): {
+            for (float r = 1; r <= VIEWDISTANCE; r++) {
+                for (float theta = -halfFovRad; theta <= halfFovRad; theta+= 0.05f) {
+                    struct vec2d curPoint = { 
+                        p->pos.x + r * cos(theta) * p->velocity.x - r * sin(theta) * p->velocity.y, 
+                        p->pos.y + r * cos(theta) * p->velocity.y + r * sin(theta) * p->velocity.x
+                    };
+                    if (curPoint.x > WIDTH || curPoint.x <= 0 || curPoint.y > HEIGHT || curPoint.y <= 0) {
+                        continue;
+                    }
+                    if (curPoint.x == p->pos.x && curPoint.y == p->pos.y) {
+                        continue;
+                    }
+                    if (pixels[curPoint.x][curPoint.y].duration <= 0) {
+                        cnt++;
+                        pick[cnt] = curPoint;
+                    }
+                }
+            }
+            break;
+        }
+
+        case (FOLLOW): {
+             for (float r = 1; r <= VIEWDISTANCE; r++) {
+                for (float theta = -halfFovRad; theta <= halfFovRad; theta+= 0.05f) {
+                    struct vec2d curPoint = { 
+                        p->pos.x + r * cos(theta) * p->velocity.x - r * sin(theta) * p->velocity.y, 
+                        p->pos.y + r * cos(theta) * p->velocity.y + r * sin(theta) * p->velocity.x
+                    };
+                    if (curPoint.x > WIDTH || curPoint.x <= 0 || curPoint.y > HEIGHT || curPoint.y <= 0) {
+                        continue;
+                    }
+                    if (curPoint.x == p->pos.x && curPoint.y == p->pos.y) {
+                        continue;
+                    }
+                    if (pixels[curPoint.x][curPoint.y].duration > 0) {
+                        cnt++;
+                        pick[cnt] = curPoint;
+                    }
+                }
+            }
+            break;           
+        }
+    }
+    //add a view cone function
     if (cnt == -1) {
         p->velocity.x = randInRange(-1,1)*SPEEDMULTI;
         p->velocity.y = randInRange(-1,1)*SPEEDMULTI;
@@ -92,11 +146,9 @@ void determineDirection(struct point *p) {
 
 void animate(SDL_Renderer *renderer, double deltaTime) {
     for (int i = 0; i < *(&points + 1) - points; i++) {
-        determineDirection(&points[i]);
-        points[i].pos.x += points[i].velocity.x;
-        points[i].pos.y += points[i].velocity.y;
-        points[i].pos.x = clamp(points[i].pos.x,1,WIDTH);
-        points[i].pos.y = clamp(points[i].pos.y,1,HEIGHT);
+        determineDirection(&points[i], renderer);
+        points[i].pos.x = clampDouble(round(points[i].velocity.x) + points[i].pos.x,1,WIDTH);
+        points[i].pos.y = clampDouble(round(points[i].velocity.y) + points[i].pos.y,1,HEIGHT);
         pixels[points[i].pos.x][points[i].pos.y].duration = ANIMATION_FPS * TRAIL_DURATION_SECONDS;
     }
 }
